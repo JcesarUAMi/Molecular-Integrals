@@ -2,6 +2,7 @@
 #include <CL/sycl.hpp>
 #include <vector>
 #include <array>
+#include <fstream>
 #include <cmath>
 #include <iomanip>
 #include "MatElements.h"
@@ -120,10 +121,10 @@ void MatElements::OrbitalData(int num) {
 
 void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysFile1) {
 
-  int n = (num * (num - 1) / 2);
+  size_t n = (num * (num - 1) / 2);
 
   OrbitalData(num);
-  int totAtm, gs, gsTS;
+  size_t totAtm, gs, gsTS;
   totAtm = readData.lastBasis.size();
   atoms.resize(totAtm);
 
@@ -136,23 +137,20 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
 //  cout << "voy con: " << n/gs << "   " << gs << std::endl;
 //  cout << "voy con: " << num/gsTS << "   " << gsTS << std::endl;
 
-  kineticEnergy.resize(readData.numberOfOccOrb);
-  coulombicEnergy.resize(readData.numberOfOccOrb);
-  oneElecCoulombEnergy.resize(readData.numberOfOccOrb);
-  exchangeEnergy.resize(readData.numberOfOccOrb);
-
   double res;
   for (int i=0; i<totAtm; i++) {
     atoms[i].atmType = readData.lastBasis[i].atomType;
     atoms[i].coords[0] = readData.lastBasis[i].nucleusCoord[0];
     atoms[i].coords[1] = readData.lastBasis[i].nucleusCoord[1];
     atoms[i].coords[2] = readData.lastBasis[i].nucleusCoord[2];
-  //  cout << atoms[i].atmType << "   " << atoms[i].coords[0] << "  " << atoms[i].coords[1] << "  " << atoms[i].coords[2] << std::endl;
   }
 
   LectureBoysValuesTest<double>(boysFile, boysFile1);
 
   queue Q{gpu_selector{}};
+
+  std::cout << "The two center integrals were evaluated in: " <<
+  Q.get_device().get_info<info::device::name>() << "\n";
 
   {
 
@@ -163,6 +161,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
 
   buffer<schwarz<double>, 1> bufswF{schF.data(), schF.size()};
   buffer<atmInfo<double>, 1> bufAtms{atoms.data(), atoms.size()};
+  buffer<double, 1> bufdE{readData.dE.data(), readData.dE.size()};
 
   buffer<double, 1> bufSCTNumA{btvNuma.data(), btvNuma.size()};
   buffer<double, 1> bufSCTNumB{btvNumb.data(), btvNumb.size()};
@@ -173,16 +172,18 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
   buffer<double, 1> bufSCTB{btvb.data(), btvb.size()};
   buffer<double, 1> bufSCTC{btvc.data(), btvc.size()};
   buffer<double, 1> bufSCTD{btvd.data(), btvd.size()};
+  
 
 //////////////////////////////////////////////(i| j)////////////////////////////////////////////////////////////
 
-  Q.submit([&](handler& h) {
+  auto oEij = Q.submit([&](handler& h) {
 
     auto accoE = bufoE.get_access<access::mode::write>(h);
     auto accbE = bufbE.get_access<access::mode::write>(h);
 
     accessor accAtms{bufAtms, h, read_only};
     accessor accsw{bufswF, h, read_write};
+    accessor accdE{bufdE, h, read_only};
 
     auto accSCNumA = bufSCTNumA.get_access<access::mode::read>(h);
     auto accSCNumB = bufSCTNumB.get_access<access::mode::read>(h);
@@ -206,7 +207,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       double PA[3], PB[3]; 
       double Px, Py, Pz, factor, expo2, expoTot, Kab, traslapeTot, nucElecTot, kineticTot, Xpc, Ypc, Zpc, Rpc, nucleousElectron, integralNucEle, coefEx, coefEy, coefEz, kineticA, kineticB, kineticC, overlap[3], kinetic[3], coefs;
       double vala, valb, valc, vald, xi, res, boysInt, bx; 
-      double boysDx[10], boysDy[10], boysDz[10], boysT[15]; 
+      double boysDx[10], boysDy[10], boysDz[10], boysT[50]; 
       int ind, ind_j, local_i, EfactorsX[15], EfactorsY[15], EfactorsZ[15];
       int nx, ny, nz, nt, ni, i, j; 
       double val;
@@ -252,7 +253,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       ang2[1] = accsw[local_i].ang2[1];
       ang2[2] = accsw[local_i].ang2[2];
 
-      if (Kab < -40.0) {
+      if (Kab < -50.0) {
         traslapeTot = 0.0;
         nucElecTot = 0.0;
         kineticTot = 0.0;
@@ -359,18 +360,18 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
           nucElecTot *= (-2.0*M_PI/expoTot)*Kab;
         }
       traslapeTot = Kab;
+      kineticTot = Kab;
       for (int i=0; i<3; i++) {
         overlap[i] = bF.overlapIntegral(ang1[i], ang2[i], PA[i], PB[i], expoTot);
         traslapeTot *= overlap[i];
-        kineticA = -2.0*expo2*expo2*bF.overlapIntegral(ang1[i], ang2[i]+2, PA[i], PB[i], expoTot);
+        kineticA = -2.0*expo2*expo2*bF.otherOverlap(ang1[i], ang2[i]+2, PA[i], PB[i], expoTot, EfactorsX);
         kineticB = expo2*(2.0*ang2[i] + 1)*overlap[i];
-        kineticC = -0.5*ang2[i]*(ang2[i]-1)*bF.overlapIntegral(ang1[i], ang2[i]-2, PA[i], PB[i], expoTot);
+        kineticC = -0.5*ang2[i]*(ang2[i]-1)*bF.otherOverlap(ang1[i], ang2[i]-2, PA[i], PB[i], expoTot, EfactorsY);
         kinetic[i] = kineticA + kineticB + kineticC;
        }
 
-       kineticTot = (kinetic[0]*overlap[1]*overlap[2] + overlap[0]*kinetic[1]*overlap[2] + overlap[0]*overlap[1]*kinetic[2]);
-      kineticTot *= Kab;
-      }
+       kineticTot *= (kinetic[0]*overlap[1]*overlap[2] + overlap[0]*kinetic[1]*overlap[2] + overlap[0]*overlap[1]*kinetic[2]);
+    }
 
     accoE[ind_i].nE = nucElecTot; 
     accoE[ind_i].kE = kineticTot;
@@ -383,7 +384,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
 
 //////////////////////////////////////////////(i | i)////////////////////////////////////////////////////////////
 
-  Q.submit([&](handler& h) {
+  auto oEii = Q.submit([&](handler& h) {
 
     auto accoE = bufoETS.get_access<access::mode::write>(h);
     auto accbE = bufbETS.get_access<access::mode::write>(h);
@@ -412,11 +413,11 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       int charge, angT, angs[3], ang1[3], ang2[3];
       double Px, Py, Pz, factor, expo2, expoTot, Kab, traslapeTot, nucElecTot, kineticTot, Xpc, Ypc, Zpc, Rpc, nucleousElectron, integralNucEle, coefEx, coefEy, coefEz, kineticA, kineticB, kineticC, overlap[3], kinetic[3], coefs;
       double vala, valb, valc, vald, xi, res, boysInt, bx;
-      double boysDx[7], boysDy[7], boysDz[7], boysT[50];
+      double boysDx[10], boysDy[10], boysDz[10], boysT[50];
       int ind, ind_j, local_i, i, j, EfactorsX[15], EfactorsY[15], EfactorsZ[15];
       int nx, ny, nz, nt, ni;
       double val;
-      int boysNx[7], boysNy[7], boysNz[7];
+      int boysNx[10], boysNy[10], boysNz[10];
       auto ind_i = group_i*group_size + item.get_local_id();
 
       i = accoE[ind_i].ind_a;
@@ -545,7 +546,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
                       integralNucEle += boysT[ni]*res;
                     }
 
-                nucElecTot += integralNucEle * coefs*charge;
+                nucElecTot += integralNucEle * coefs * charge;
               }
           }
           nucElecTot *= (-2.0*M_PI/expoTot);
@@ -574,7 +575,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
 ///////////////////////////STARTS THE BIELECTRONIC PART ////////////////////////////////
 ///////////////////////////////////////(i i | i i)////////////////////////////////////////////////////////////
 
-    Q.submit([&](handler& h) {
+    auto tEii = Q.submit([&](handler& h) {
 
     auto accbE = bufbETS.get_access<access::mode::write>(h);
 
@@ -589,11 +590,11 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
         storm<double> bF;
         int angT12, totAngMom, ang12[3], ang1[3];
         double expo12, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, scr;
-        double boysDx[7], boysDy[7], boysDz[7], boysT[50];
+        double boysDx[10], boysDy[10], boysDz[10], boysT[50];
         int ind, ind_j, local_i, EfactorsX[15], EfactorsY[15], EfactorsZ[15];
         int nx, ny, nz, ni, totalCenter, i;
         double factorCou, etaCou;
-        int boysNx[7], boysNy[7], boysNz[7], la, lb;
+        int boysNx[10], boysNy[10], boysNz[10], la, lb;
         auto ind_i = group_i*group_size + item.get_local_id();
 
         i = accbE[ind_i].ind_a;
@@ -634,10 +635,12 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       });
     });
 
+    tEii.wait();
+
 /////////////////////////////////////////////////////////(i j | i j)///////////////////////////////
 
 
-    Q.submit([&](handler& h) {
+    auto tEij = Q.submit([&](handler& h) {
 
     auto accbE = bufbE.get_access<access::mode::write>(h);
 
@@ -652,11 +655,11 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       storm<double> bF;
       int angT12, totAngMom, ang12[3], ang1[3], ang2[3];
       double expo12, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, Kab, totalCou, PQ[3], PA[3], PB[3];
-      double boysDx[7], boysDy[7], boysDz[7], boysT[50], scr;
+      double boysDx[10], boysDy[10], boysDz[10], boysT[50], scr;
       int EfactorsX[15], EfactorsY[15], EfactorsZ[15];
       int center1, center2, la, lb, i, j, local_i, local_j;
       double factorCou, etaCou;
-      int boysNx[7], boysNy[7], boysNz[7];
+      int boysNx[10], boysNy[10], boysNz[10];
       auto ind_i = group_i*group_size + item.get_local_id(); 
 
       i = accbE[ind_i].ind_a;
@@ -742,18 +745,308 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       });
     });
 
+    tEij.wait();
+
   }Q.wait();
+//////////////////////////////////////(i j| k l)////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+  double total1, total2;
+  total1 = total2 = 0.0;
+  for (int i=0; i<schF.size(); i++) {
+    total1 += schF[i].ext;
+    total2 += schF[i].scr;
+  }
+
+  cout << "the total are:  " << total1 << "   " << total2 << std::endl;
+
+  long int sci;
+  int ni, ka, kia, j1, k1, l1;
+  size_t n7i, n7, gs7;
+
+  queue Z{default_selector{}};
+
+  std::cout << "The two center integrals were evaluated in: " <<
+  Z.get_device().get_info<info::device::name>() << "\n";
+
+  sci = 0;
+  {
+    auto sci_dev = malloc_host<long int>(1,Z);
+
+    auto e1 = Z.memcpy(sci_dev, &sci, sizeof(long int));
+
+  buffer<schwarz<double>, 1> bufswF{schF.data(), schF.size()};
+  buffer<double, 1> bufdE{readData.dE.data(), readData.dE.size()};
+
+  buffer<double, 1> bufSCTNumA{btvNuma.data(), btvNuma.size()};
+  buffer<double, 1> bufSCTNumB{btvNumb.data(), btvNumb.size()};
+  buffer<double, 1> bufSCTNumC{btvNumc.data(), btvNumc.size()};
+  buffer<double, 1> bufSCTNumD{btvNumd.data(), btvNumd.size()};
+
+  buffer<double, 1> bufSCTA{btva.data(), btva.size()};
+  buffer<double, 1> bufSCTB{btvb.data(), btvb.size()};
+  buffer<double, 1> bufSCTC{btvc.data(), btvc.size()};
+  buffer<double, 1> bufSCTD{btvd.data(), btvd.size()};
+
+  ni = num-1;
+  n7 = (num-2);
+  n7 *= (num-3);
+  n7 *= (num-4);
+
+  n7i = n7/8;
+  cout << "voy con: " << ni << "   " << n7i <<  "   " << n7i*ni << std::endl;
+  bE7.resize(4*n7i);
+  buffer<bielectro<double>, 1> bufbE7{bE7};
+
+  ka = 0;
+  kia = 0;
+
+  for (int ij = 1; ij<ni-2; ij++) {  //ij<na-2
+    n7 = 0;
+    for (int i=ij; i<=ij; i++) {   //m*ij
+      j1 = i+1;
+      k1 = i;
+      for (int j=j1; j<aO.size(); j++) {
+        for (int k=k1; k<aO.size(); k++) {
+          if (k == i)
+            k++;
+          if (k == j)
+            k++;
+
+          l1 = k+1;
+          for (int l=l1; l<aO.size(); l++) {
+            if (l == j)
+              l++;
+          if (l < aO.size()) {
+            bE7[n7].ind_a = i;
+            bE7[n7].ind_b = j;
+            bE7[n7].ind_c = k;
+            bE7[n7].ind_d = l;
+            n7++;
+            ka++;
+            }
+          }
+        }
+        j1++;
+      }
+    }
+
+  bE7.resize(n7);
+  gs7 = ghF.checkGroupSize(n7);
+
+ auto tEijkl =  Z.submit([&](handler& h) {
+
+    auto accbE = bufbE7.get_access<access::mode::read_write>(h);
+
+    accessor accsw{bufswF, h, read_only};
+
+    auto accSCNumA = bufSCTNumA.get_access<access::mode::read>(h);
+    auto accSCNumB = bufSCTNumB.get_access<access::mode::read>(h);
+    auto accSCNumC = bufSCTNumC.get_access<access::mode::read>(h);
+    auto accSCNumD = bufSCTNumD.get_access<access::mode::read>(h);
+
+    auto accSCA = bufSCTA.get_access<access::mode::read>(h);
+    auto accSCB = bufSCTB.get_access<access::mode::read>(h);
+    auto accSCC = bufSCTC.get_access<access::mode::read>(h);
+    auto accSCD = bufSCTD.get_access<access::mode::read>(h);
+     
+    range num_groups = n7/gs7;
+    range group_size = gs7;
+    h.parallel_for_work_group(num_groups, group_size, [=](group<1> grp) {
+      int group_i = grp.get_id();
+      grp.parallel_for_work_item([&](h_item<1> item) {
+        storm<double> bF;
+        int angT12, angT34, totAngMom, ang12[3], ang34[3], ang1[3], ang2[3], ang3[3], ang4[3];
+        double expo12, expo34, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, Kab, Kcd, totalCou, PQ[3], PA[3], PB[3], QC[3], QD[3], P[3], Q[3], Rpq, schwarzIne, denom;
+        double boysDx[10], boysDy[10], boysDz[10], boysT[35];
+        int EfactorsX[15], EfactorsY[15], EfactorsZ[15];
+        int center1, center2, center3, center4, ia, ja, ind, ind_j, nt, nx, ny, nz, ni;
+        double vala, valb, valc, vald, val, xi, bx;
+        double factorCou, etaCou, factor;
+        int boysNx[10], boysNy[10], boysNz[10];
+
+        auto local_i = group_i*group_size + item.get_local_id();
+
+      ia = num*accbE[local_i].ind_a + accbE[local_i].ind_b;
+      ja = num*accbE[local_i].ind_c + accbE[local_i].ind_d;
+
+      expo12 = accsw[ia].expoTot;
+      expo34 = accsw[ja].expoTot;
+
+      P[0] = accsw[ia].P[0];
+      P[1] = accsw[ia].P[1];
+      P[2] = accsw[ia].P[2];
+
+      Q[0] = accsw[ja].P[0];
+      Q[1] = accsw[ja].P[1];
+      Q[2] = accsw[ja].P[2];
+
+      PQ[0] = P[0] - Q[0];
+      PQ[1] = P[1] - Q[1];
+      PQ[2] = P[2] - Q[2];
+
+      Rpq = 0.0;
+      for (int i=0; i<3; i++)
+        Rpq += PQ[i]*PQ[i];
+
+      denom = sycl::sqrt(Rpq) - accsw[ia].ext-accsw[ja].ext;
+      if (denom != 0.0) 
+        schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr/denom);
+      else 
+        schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr);
+
+      if (schwarzIne <= bF.tolerance) {
+        bielecTot = 0.0;
+        (*sci_dev)++;
+      } else {
+        angT12 = accsw[ia].angT;
+        angT34 = accsw[ja].angT;
+        totAngMom = angT12 + angT34;
+
+        ang12[0] = accsw[ia].angs[0];
+        ang12[1] = accsw[ia].angs[1];
+        ang12[2] = accsw[ia].angs[2];
+
+        ang1[0] = accsw[ia].ang1[0];
+        ang1[1] = accsw[ia].ang1[1];
+        ang1[2] = accsw[ia].ang1[2];
+
+        ang2[0] = accsw[ia].ang2[0];
+        ang2[1] = accsw[ia].ang2[1];
+        ang2[2] = accsw[ia].ang2[2];
+
+        ang34[0] = accsw[ja].angs[0];
+        ang34[1] = accsw[ja].angs[1];
+        ang34[2] = accsw[ja].angs[2];
+
+        ang3[0] = accsw[ja].ang1[0];
+        ang3[1] = accsw[ja].ang1[1];
+        ang3[2] = accsw[ja].ang1[2];
+
+        ang4[0] = accsw[ja].ang2[0];
+        ang4[1] = accsw[ja].ang2[1];
+        ang4[2] = accsw[ja].ang2[2];
+
+        factorCou = bF.pi52/(expo12*expo34*sycl::sqrt(expo12 + expo34));
+        etaCou = expo12*expo34/(expo12+expo34);
+
+        center1 = accsw[ia].atmCenter1;
+        center2 = accsw[ia].atmCenter2;
+        center3 = accsw[ja].atmCenter1;
+        center4 = accsw[ja].atmCenter2;
+
+        if (center1 == center2 && center3 == center4 && center1 == center3) {
+          if (totAngMom == 0)
+            bielecTot = factorCou;
+          else
+            bielecTot = factorCou*bF.OneCenterNewIntegral<double>(boysT, boysDx, boysDy, boysDz, boysNx, boysNy, boysNz, EfactorsX, EfactorsY, EfactorsZ, ang12, ang34, ang1, ang2, ang3, ang4, totAngMom, etaCou, expo12, expo34);
+        } else {
+          Kab = accsw[ia].Kab;
+          Kcd = accsw[ja].Kab;
+          if (Kab < -40.0 || Kcd < -40.0)
+            bielecTot = 0.0;
+          else {
+            Kab = sycl::exp(Kab);
+            Kcd = sycl::exp(Kcd);
+            totalCou = factorCou*Kab*Kcd;
+            factor = Rpq * etaCou;
+            if (factor < 1E-12)
+              factor = 0.0;
+            if (totAngMom == 0)
+              bielecTot = totalCou * bF.boysZeroDegree<double>(factor);
+            else {
+
+              PA[0] = accsw[ia].PA[0];
+              PA[1] = accsw[ia].PA[1];
+              PA[2] = accsw[ia].PA[2];
+
+              PB[0] = accsw[ia].PB[0];
+              PB[1] = accsw[ia].PB[1];
+              PB[2] = accsw[ia].PB[2];
+
+              QC[0] = accsw[ja].PA[0];
+              QC[1] = accsw[ja].PA[1];
+              QC[2] = accsw[ja].PA[2];
+
+              QD[0] = accsw[ja].PB[0];
+              QD[1] = accsw[ja].PB[1];
+              QD[2] = accsw[ja].PB[2];
+
+              ind_j = factor * 10000;
+              xi = factor - ind_j * 0.0001;
+
+              boysT[0] = bF.boysZeroDegree<double>(factor);
+
+              if (factor == 0 || factor >= 30.0) {
+                for (int u=1; u<=totAngMom; u++)
+                  boysT[u] = bF.ObaraIntegral<double>(u, factor);
+              } else {
+                nt = 3;
+                if (totAngMom <= nt)
+                  nt = totAngMom;
+              for (int i=1; i<=nt; i++) {
+                ind = ind_j + (i-1)*300001;
+                vala = accSCNumA[ind];
+                valb = accSCNumB[ind];
+                valc = accSCNumC[ind];
+                vald = accSCNumD[ind];
+                boysT[i] = bF.SplinesBoys<double>(xi, vala, valb, valc, vald);
+                }
+              if (totAngMom > 3) {
+                nt = totAngMom / 5;
+                if (nt > 0) {
+                  val = totAngMom / 5.0;
+                  val -= nt;
+                  if (val == 0.0)
+                  nt--;
+                }
+                for (int u=0; u<=nt; u++) {
+                  ind = ind_j + u*300001;
+                  vala = accSCA[ind];
+                  valb = accSCB[ind];
+                  valc = accSCC[ind];
+                  vald = accSCD[ind];
+
+                  bx = bF.SplinesBoys<double>(xi, vala, valb, valc, vald);
+                  if (u == 0)
+                    bF.boysDownward(factor, bx, (u+1)*5, 4, boysT);
+                  else
+                    bF.boysDownward(factor, bx, (u+1)*5, u*5+1, boysT);
+                  }
+                }
+              }
+
+              bielecTot = bF.NewIntegral(boysT, boysDx, boysDy, boysDz, boysNx, boysNy, boysNz, EfactorsX, EfactorsY, EfactorsZ, ang12, ang34, ang1, ang2, ang3, ang4, PQ, PA, PB, QC, QD, etaCou, expo12, expo34);
+
+              bielecTot *= totalCou;
+            }
+          }
+        }
+    }
+     accbE[local_i].val = bielecTot;
+
+       });
+     });
+   });
+  
+  }
+
+ Z.memcpy(&sci, sci_dev, sizeof(long int)).wait();
+
+  }Z.wait();
+
+  cout << "Bloqued her: " << sci << std::endl;
 
 ////////////////////////////////////////////////////VALUES PASSING///////////////////////////////////////////////////////////////////////////////////////////////////
 
-  int n1, n2, n3, n4, n5, n6, n7, l1;
-  int gs1, gs2, gs3, gs4, gs5, gs6, gs7;
+  size_t n1, n2, n3, n4, n5, n6;
+  size_t gs1, gs2, gs3, gs4, gs5, gs6;
 ////////(ii|ij)
   n1 = num*(num-1);
   bE1.resize(n1);
   gs1 = ghF.checkGroupSize(n1);
 
-//  cout << "voy con: " << n1/gs1 << "   " << gs1 << std::endl;
+  cout << "voy con: " << n1/gs1 << "   " << gs1 << std::endl;
   n1 = 0;
   for (int i=0; i<aO.size(); i++) 
     for (int j=0; j<aO.size(); j++) {
@@ -770,10 +1063,10 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
 /////////(ii|jj)
   bE2.resize(n);
   gs2 = gs;
-//  cout << "voy con: " << n/gs2 << "   " << gs2 << std::endl;
+  cout << "voy con: " << n/gs2 << "   " << gs2 << std::endl;
 
   n2 = 0;
-  int j1 = 1;
+  j1 = 1;
   for (int i=0; i<aO.size(); i++) {
     for (int j=j1; j<aO.size(); j++) {
       bE2[n2].ind_a = i;
@@ -789,7 +1082,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
   n3 = num*(num-1)*(num-2)/2;
   bE3.resize(n3);
   gs3 = ghF.checkGroupSize(n3);
-  int k1;
+  cout << "voy con: " << n3/gs3 << "   " << gs3 << std::endl;
 
   n3 = 0;
   for (int i=0; i<aO.size(); i++) {
@@ -816,12 +1109,11 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
     }
   }
 
-
 //////(0i|0j)
   n4 = (num-1)*(num-2)/2;
   bE4.resize(n4);
   gs4 = ghF.checkGroupSize(n4);
-//  cout << "voy con: " << n4/gs4 << "   " << gs4 << std::endl;
+  cout << "voy con: " << n4/gs4 << "   " << gs4 << std::endl;
   
   n4 = 0;
   for (int i=1; i<aO.size(); i++) 
@@ -837,7 +1129,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
   n5 = (num-1)*(num-1)*(num-2)/2;
   bE5.resize(n5);
   gs5 = ghF.checkGroupSize(n5);
-//  cout << "voy con: " << n5/gs5 << "   " << gs5 << std::endl;
+  cout << "voy con: " << n5/gs5 << "   " << gs5 << std::endl;
 
   n5 = 0;
   for (int i=1; i<aO.size(); i++) {
@@ -869,7 +1161,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
   n6 = (num-1)*(num-2)*(num-3)/2;
   bE6.resize(n6);
   gs6 = ghF.checkGroupSize(n6);
-//  cout << "voy con: " << n6/gs6 << "   " << gs6 << std::endl;
+  cout << "voy con: " << n6/gs6 << "   " << gs6 << std::endl;
 
   n6 = 0;
   for (int j=1; j<aO.size(); j++) {
@@ -893,47 +1185,21 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
     }
   }
 
-//////////(ij|kl)
-  n7 = (num-1)*(num-2)*(num-3)*(num-4)/8;
-  bE7.resize(n7);
-  gs7 = ghF.checkGroupSize(n7);
-//  cout << "voy con: " << n7/gs7 << "   " << gs7 << std::endl;
-
-  n7 = 0;
-  for (int i=1; i<aO.size(); i++) {
-    j1 = i+1;
-    k1 = i;
-    for (int j=j1; j<aO.size(); j++) {
-      for (int k=k1; k<aO.size(); k++) {
-        if (k == i)
-          k++;
-        if (k == j)
-          k++;
-
-        l1 = k+1;
-        for (int l=l1; l<aO.size(); l++) {
-        if (l == j)
-          l++;
-        if (l < aO.size()) {
-          bE7[n7].ind_a = i;
-          bE7[n7].ind_b = j;
-          bE7[n7].ind_c = k;
-          bE7[n7].ind_d = l;
-          n7++;
-          }
-        }
-      }
-      j1++;
-    }
-  }
-
-
-
 ////////////////////////////////////////////////////////(i i | i j) ////////////////////////////////////////////////////////////////////////////////////////////////
 
-  queue W{gpu_selector{}};
+  int sc = 0;
+
+  queue W{default_selector{}};
+
+  std::cout << "The four-center integrals were evaluatud in: " <<
+  W.get_device().get_info<info::device::name>() << "\n";
 
   {
+
+  auto sc_dev = malloc_device<int>(1,W);
+
+  auto e2 = W.memcpy(sc_dev, &sc, sizeof(int));
+
 
   buffer<schwarz<double>, 1> bufswF{schF.data(), schF.size()};
 
@@ -953,7 +1219,6 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
   buffer<bielectro<double>, 1> bufbE4{bE4};
   buffer<bielectro<double>, 1> bufbE5{bE5};
   buffer<bielectro<double>, 1> bufbE6{bE6};
-  buffer<bielectro<double>, 1> bufbE7{bE7};
 
    W.submit([&](handler& h) {
 
@@ -978,7 +1243,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       grp.parallel_for_work_item([&](h_item<1> item) {
         storm<double> bF;
         int angT12, angT34, totAngMom, ang12[3], ang34[3], ang1[3], ang2[3], ang3[3], ang4[3];
-        double expo12, expo34, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, Kab, Kcd, totalCou, PQ[3], PA[3], PB[3], QC[3], QD[3], P[3], Q[3], Rpq, schwarzIne;
+        double expo12, expo34, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, Kab, Kcd, totalCou, PQ[3], PA[3], PB[3], QC[3], QD[3], P[3], Q[3], Rpq, schwarzIne, denom;
         double boysDx[10], boysDy[10], boysDz[10], boysT[35];
         int EfactorsX[15], EfactorsY[15], EfactorsZ[15];
         int center1, center2, center3, center4, ia, ja, ind, ind_j, nt, nx, ny, nz, ni;
@@ -1010,11 +1275,16 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       for (int i=0; i<3; i++)
         Rpq += PQ[i]*PQ[i];   
 
-      schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr/(sycl::sqrt(Rpq) - accsw[ia].ext-accsw[ja].ext));
+      denom = sycl::sqrt(Rpq) - accsw[ia].ext-accsw[ja].ext;
+      if (denom != 0.0)
+        schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr/denom);
+      else
+        schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr);
 
-      if (schwarzIne <= bF.tolerance)
+      if (schwarzIne <= bF.tolerance) {
         bielecTot = 0.0;
-      else { 
+        (*sc_dev)++;
+      } else { 
         angT12 = accsw[ia].angT;
         angT34 = accsw[ja].angT;
         totAngMom = angT12 + angT34;
@@ -1145,7 +1415,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
      });
    });
 
-
+W.memcpy(&sc, sc_dev, sizeof(int)).wait();
 ///////////////////////////////////////////////////////(i i | j j)////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -1172,7 +1442,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       grp.parallel_for_work_item([&](h_item<1> item) {
         storm<double> bF;
         int angT12, angT34, totAngMom, ang12[3], ang34[3], ang1[3], ang2[3], ang3[3], ang4[3];
-        double expo12, expo34, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, Kab, Kcd, totalCou, PQ[3], PA[3], PB[3], QC[3], QD[3], P[3], Q[3], Rpq, schwarzIne;
+        double expo12, expo34, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, Kab, Kcd, totalCou, PQ[3], PA[3], PB[3], QC[3], QD[3], P[3], Q[3], Rpq, schwarzIne, denom;
         double boysDx[10], boysDy[10], boysDz[10], boysT[35];
         int EfactorsX[15], EfactorsY[15], EfactorsZ[15];
         int center1, center2, center3, center4, ia, ja, ind, ind_j, nt, nx, ny, nz, ni;
@@ -1204,11 +1474,16 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       for (int i=0; i<3; i++)
         Rpq += PQ[i]*PQ[i];
 
-      schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr/(sycl::sqrt(Rpq) - accsw[ia].ext-accsw[ja].ext));
+      denom = sycl::sqrt(Rpq) - accsw[ia].ext-accsw[ja].ext;
+      if (denom != 0.0)
+        schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr/denom);
+      else
+        schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr);
 
-      if (schwarzIne <= bF.tolerance)
+      if (schwarzIne <= bF.tolerance) {
         bielecTot = 0.0;
-      else {
+        (*sc_dev)++;
+      } else {
         angT12 = accsw[ia].angT;
         angT34 = accsw[ja].angT;
         totAngMom = angT12 + angT34;
@@ -1340,7 +1615,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
    });
 
 
-
+W.memcpy(&sc, sc_dev, sizeof(int)).wait();
 /////////////////////////////////////////////////////////(i i| j k)////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -1367,7 +1642,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       grp.parallel_for_work_item([&](h_item<1> item) {
         storm<double> bF;
         int angT12, angT34, totAngMom, ang12[3], ang34[3], ang1[3], ang2[3], ang3[3], ang4[3];
-        double expo12, expo34, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, Kab, Kcd, totalCou, PQ[3], PA[3], PB[3], QC[3], QD[3], P[3], Q[3], Rpq, schwarzIne;
+        double expo12, expo34, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, Kab, Kcd, totalCou, PQ[3], PA[3], PB[3], QC[3], QD[3], P[3], Q[3], Rpq, schwarzIne, denom;
         double boysDx[10], boysDy[10], boysDz[10], boysT[35];
         int EfactorsX[15], EfactorsY[15], EfactorsZ[15];
         int center1, center2, center3, center4, ia, ja, ind, ind_j, nt, nx, ny, nz, ni;
@@ -1399,11 +1674,16 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       for (int i=0; i<3; i++)
         Rpq += PQ[i]*PQ[i];
 
-      schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr/(sycl::sqrt(Rpq) - accsw[ia].ext-accsw[ja].ext));
+      denom = sycl::sqrt(Rpq) - accsw[ia].ext-accsw[ja].ext;
+      if (denom != 0.0)
+        schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr/denom);
+      else
+        schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr);
 
-      if (schwarzIne < bF.tolerance)
+      if (schwarzIne <= bF.tolerance) {
         bielecTot = 0.0;
-      else {
+        (*sc_dev)++;
+      } else {
         angT12 = accsw[ia].angT;
         angT34 = accsw[ja].angT;
         totAngMom = angT12 + angT34;
@@ -1534,7 +1814,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
      });
    });
 
-
+W.memcpy(&sc, sc_dev, sizeof(int)).wait();
 ///////////////////////////////////////////////////////(0 i| 0 j)/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -1561,7 +1841,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       grp.parallel_for_work_item([&](h_item<1> item) {
         storm<double> bF;
         int angT12, angT34, totAngMom, ang12[3], ang34[3], ang1[3], ang2[3], ang3[3], ang4[3];
-        double expo12, expo34, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, Kab, Kcd, totalCou, PQ[3], PA[3], PB[3], QC[3], QD[3], P[3], Q[3], Rpq, schwarzIne;
+        double expo12, expo34, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, Kab, Kcd, totalCou, PQ[3], PA[3], PB[3], QC[3], QD[3], P[3], Q[3], Rpq, schwarzIne, denom;
         double boysDx[10], boysDy[10], boysDz[10], boysT[35];
         int EfactorsX[15], EfactorsY[15], EfactorsZ[15];
         int center1, center2, center3, center4, ia, ja, ind, ind_j, nt, nx, ny, nz, ni;
@@ -1593,11 +1873,16 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       for (int i=0; i<3; i++)
         Rpq += PQ[i]*PQ[i];
 
-      schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr/(sycl::sqrt(Rpq) - accsw[ia].ext-accsw[ja].ext));
+      denom = sycl::sqrt(Rpq) - accsw[ia].ext-accsw[ja].ext;
+      if (denom != 0.0)
+        schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr/denom);
+      else
+        schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr);
 
-      if (schwarzIne < bF.tolerance)
+      if (schwarzIne <= bF.tolerance) {
         bielecTot = 0.0;
-      else {
+        (*sc_dev)++;
+      } else {
         angT12 = accsw[ia].angT;
         angT34 = accsw[ja].angT;
         totAngMom = angT12 + angT34;
@@ -1728,7 +2013,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
      });
    });
 
-
+W.memcpy(&sc, sc_dev, sizeof(int)).wait();
 ///////////////////////////////////////////////////(i j | i k)////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -1755,7 +2040,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       grp.parallel_for_work_item([&](h_item<1> item) {
         storm<double> bF;
         int angT12, angT34, totAngMom, ang12[3], ang34[3], ang1[3], ang2[3], ang3[3], ang4[3];
-        double expo12, expo34, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, Kab, Kcd, totalCou, PQ[3], PA[3], PB[3], QC[3], QD[3], P[3], Q[3], Rpq, schwarzIne;
+        double expo12, expo34, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, Kab, Kcd, totalCou, PQ[3], PA[3], PB[3], QC[3], QD[3], P[3], Q[3], Rpq, schwarzIne, denom;
         double boysDx[10], boysDy[10], boysDz[10], boysT[35];
         int EfactorsX[15], EfactorsY[15], EfactorsZ[15];
         int center1, center2, center3, center4, ia, ja, ind, ind_j, nt, nx, ny, nz, ni;
@@ -1787,11 +2072,16 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       for (int i=0; i<3; i++)
         Rpq += PQ[i]*PQ[i];
 
-      schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr/(sycl::sqrt(Rpq) - accsw[ia].ext-accsw[ja].ext));
+      denom = sycl::sqrt(Rpq) - accsw[ia].ext-accsw[ja].ext;
+      if (denom != 0.0)
+        schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr/denom);
+      else
+        schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr);
 
-      if (schwarzIne <= bF.tolerance)
+      if (schwarzIne <= bF.tolerance) {
         bielecTot = 0.0;
-      else {
+        (*sc_dev)++;
+      } else {
         angT12 = accsw[ia].angT;
         angT34 = accsw[ja].angT;
         totAngMom = angT12 + angT34;
@@ -1922,7 +2212,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
      });
    });
 
-
+    W.memcpy(&sc, sc_dev, sizeof(int)).wait();
 //////////////////////////////////////////////////(0 j | k l)//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -1949,7 +2239,7 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       grp.parallel_for_work_item([&](h_item<1> item) {
         storm<double> bF;
         int angT12, angT34, totAngMom, ang12[3], ang34[3], ang1[3], ang2[3], ang3[3], ang4[3];
-        double expo12, expo34, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, Kab, Kcd, totalCou, PQ[3], PA[3], PB[3], QC[3], QD[3], P[3], Q[3], Rpq, schwarzIne;
+        double expo12, expo34, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, Kab, Kcd, totalCou, PQ[3], PA[3], PB[3], QC[3], QD[3], P[3], Q[3], Rpq, schwarzIne, denom;
         double boysDx[10], boysDy[10], boysDz[10], boysT[35];
         int EfactorsX[15], EfactorsY[15], EfactorsZ[15];
         int center1, center2, center3, center4, ia, ja, ind, ind_j, nt, nx, ny, nz, ni;
@@ -1981,11 +2271,15 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
       for (int i=0; i<3; i++)
         Rpq += PQ[i]*PQ[i];
 
-      schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr/(sycl::sqrt(Rpq) - accsw[ia].ext-accsw[ja].ext));
-
-      if (schwarzIne <= bF.tolerance)
+      denom = sycl::sqrt(Rpq) - accsw[ia].ext-accsw[ja].ext;
+      if (denom != 0.0)
+        schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr/denom);
+      else
+        schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr);
+      if (schwarzIne <= bF.tolerance) {
         bielecTot = 0.0;
-      else {
+        (*sc_dev)++;
+      } else {
         angT12 = accsw[ia].angT;
         angT34 = accsw[ja].angT;
         totAngMom = angT12 + angT34;
@@ -2116,204 +2410,13 @@ void MatElements::IntegralEvaluation (int num, fstream& boysFile, fstream& boysF
      });
    });
 
-////////////////////////////////////////////////////////////((i j | k l)//////////////////////////////////////////////////////////////////////////////////
+   W.memcpy(&sc, sc_dev, sizeof(int)).wait();
 
-  W.submit([&](handler& h) {
+  }W.wait();
 
-    auto accbE = bufbE7.get_access<access::mode::read_write>(h);
-
-    accessor accsw{bufswF, h, read_only};
-
-    auto accSCNumA = bufSCTNumA.get_access<access::mode::read>(h);
-    auto accSCNumB = bufSCTNumB.get_access<access::mode::read>(h);
-    auto accSCNumC = bufSCTNumC.get_access<access::mode::read>(h);
-    auto accSCNumD = bufSCTNumD.get_access<access::mode::read>(h);
-
-    auto accSCA = bufSCTA.get_access<access::mode::read>(h);
-    auto accSCB = bufSCTB.get_access<access::mode::read>(h);
-    auto accSCC = bufSCTC.get_access<access::mode::read>(h);
-    auto accSCD = bufSCTD.get_access<access::mode::read>(h);
-
-    range num_groups = n7/gs7;
-    range group_size = gs7;
-    h.parallel_for_work_group(num_groups, group_size, [=](group<1> grp) {
-      int group_i = grp.get_id();
-      grp.parallel_for_work_item([&](h_item<1> item) {
-        storm<double> bF;
-        int angT12, angT34, totAngMom, ang12[3], ang34[3], ang1[3], ang2[3], ang3[3], ang4[3];
-        double expo12, expo34, bielecTot, coef1Ex, coef1Ey, coef1Ez, coefs1, coef2Ex, coef2Ey, coef2Ez, coefs2, integralBie, res, Kab, Kcd, totalCou, PQ[3], PA[3], PB[3], QC[3], QD[3], P[3], Q[3], Rpq, schwarzIne;
-        double boysDx[10], boysDy[10], boysDz[10], boysT[35];
-        int EfactorsX[15], EfactorsY[15], EfactorsZ[15];
-        int center1, center2, center3, center4, ia, ja, ind, ind_j, nt, nx, ny, nz, ni;
-        double vala, valb, valc, vald, val, xi, bx;
-        double factorCou, etaCou, factor;
-        int boysNx[10], boysNy[10], boysNz[10];
-
-        auto local_i = group_i*group_size + item.get_local_id();
-
-      ia = num*accbE[local_i].ind_a + accbE[local_i].ind_b;
-      ja = num*accbE[local_i].ind_c + accbE[local_i].ind_d;
-
-      expo12 = accsw[ia].expoTot;
-      expo34 = accsw[ja].expoTot;
-
-      P[0] = accsw[ia].P[0];
-      P[1] = accsw[ia].P[1];
-      P[2] = accsw[ia].P[2];
-
-      Q[0] = accsw[ja].P[0];
-      Q[1] = accsw[ja].P[1];
-      Q[2] = accsw[ja].P[2];
-
-      PQ[0] = P[0] - Q[0];
-      PQ[1] = P[1] - Q[1];
-      PQ[2] = P[2] - Q[2];
-
-      Rpq = 0.0;
-      for (int i=0; i<3; i++)
-        Rpq += PQ[i]*PQ[i];
-
-      schwarzIne = sycl::abs(accsw[ia].scr*accsw[ja].scr/(sycl::sqrt(Rpq) - accsw[ia].ext-accsw[ja].ext));
-
-      if (schwarzIne <= bF.tolerance)
-        bielecTot = 0.0;
-      else {
-        angT12 = accsw[ia].angT;
-        angT34 = accsw[ja].angT;
-        totAngMom = angT12 + angT34;
-
-        ang12[0] = accsw[ia].angs[0];
-        ang12[1] = accsw[ia].angs[1];
-        ang12[2] = accsw[ia].angs[2];
-
-        ang1[0] = accsw[ia].ang1[0];
-        ang1[1] = accsw[ia].ang1[1];
-        ang1[2] = accsw[ia].ang1[2];
-
-        ang2[0] = accsw[ia].ang2[0];
-        ang2[1] = accsw[ia].ang2[1];
-        ang2[2] = accsw[ia].ang2[2];
-
-        ang34[0] = accsw[ja].angs[0];
-        ang34[1] = accsw[ja].angs[1];
-        ang34[2] = accsw[ja].angs[2];
-
-        ang3[0] = accsw[ja].ang1[0];
-        ang3[1] = accsw[ja].ang1[1];
-        ang3[2] = accsw[ja].ang1[2];
-
-        ang4[0] = accsw[ja].ang2[0];
-        ang4[1] = accsw[ja].ang2[1];
-        ang4[2] = accsw[ja].ang2[2];
-
-        factorCou = bF.pi52/(expo12*expo34*sycl::sqrt(expo12 + expo34));
-        etaCou = expo12*expo34/(expo12+expo34);
-
-        center1 = accsw[ia].atmCenter1;
-        center2 = accsw[ia].atmCenter2;
-        center3 = accsw[ja].atmCenter1;
-        center4 = accsw[ja].atmCenter2;
-
-        if (center1 == center2 && center3 == center4 && center1 == center3) {
-          if (totAngMom == 0)
-            bielecTot = factorCou;
-          else
-            bielecTot = factorCou*bF.OneCenterNewIntegral<double>(boysT, boysDx, boysDy, boysDz, boysNx, boysNy, boysNz, EfactorsX, EfactorsY, EfactorsZ, ang12, ang34, ang1, ang2, ang3, ang4, totAngMom, etaCou, expo12, expo34);
-        } else {
-          Kab = accsw[ia].Kab;
-          Kcd = accsw[ja].Kab;
-          if (Kab < -40.0 || Kcd < -40.0)
-            bielecTot = 0.0;
-          else {
-            Kab = sycl::exp(Kab);
-            Kcd = sycl::exp(Kcd);
-            totalCou = factorCou*Kab*Kcd;
-            factor = Rpq * etaCou;
-            if (factor < 1E-12)
-              factor = 0.0;
-            if (totAngMom == 0)
-              bielecTot = totalCou * bF.boysZeroDegree<double>(factor);
-            else {
-
-              PA[0] = accsw[ia].PA[0];
-              PA[1] = accsw[ia].PA[1];
-              PA[2] = accsw[ia].PA[2];
-
-              PB[0] = accsw[ia].PB[0];
-              PB[1] = accsw[ia].PB[1];
-              PB[2] = accsw[ia].PB[2];
-
-              QC[0] = accsw[ja].PA[0];
-              QC[1] = accsw[ja].PA[1];
-              QC[2] = accsw[ja].PA[2];
-
-              QD[0] = accsw[ja].PB[0];
-              QD[1] = accsw[ja].PB[1];
-              QD[2] = accsw[ja].PB[2];
-
-              ind_j = factor * 10000;
-              xi = factor - ind_j * 0.0001;
-
-              boysT[0] = bF.boysZeroDegree<double>(factor);
-
-              if (factor == 0 || factor >= 30.0) {
-                for (int u=1; u<=totAngMom; u++)
-                  boysT[u] = bF.ObaraIntegral<double>(u, factor);
-              } else {
-                nt = 3;
-                if (totAngMom <= nt)
-                  nt = totAngMom;
-              for (int i=1; i<=nt; i++) {
-                ind = ind_j + (i-1)*300001;
-                vala = accSCNumA[ind];
-                valb = accSCNumB[ind];
-                valc = accSCNumC[ind];
-                vald = accSCNumD[ind];
-                boysT[i] = bF.SplinesBoys<double>(xi, vala, valb, valc, vald);
-                }
-              if (totAngMom > 3) {
-                nt = totAngMom / 5;
-                if (nt > 0) {
-                  val = totAngMom / 5.0;
-                  val -= nt;
-                  if (val == 0.0)
-                  nt--;
-                }
-                for (int u=0; u<=nt; u++) {
-                  ind = ind_j + u*300001;
-                  vala = accSCA[ind];
-                  valb = accSCB[ind];
-                  valc = accSCC[ind];
-                  vald = accSCD[ind];
-
-                  bx = bF.SplinesBoys<double>(xi, vala, valb, valc, vald);
-                  if (u == 0)
-                    bF.boysDownward(factor, bx, (u+1)*5, 4, boysT);
-                  else
-                    bF.boysDownward(factor, bx, (u+1)*5, u*5+1, boysT);
-                  }
-                }
-              }
-
-              bielecTot = bF.NewIntegral(boysT, boysDx, boysDy, boysDz, boysNx, boysNy, boysNz, EfactorsX, EfactorsY, EfactorsZ, ang12, ang34, ang1, ang2, ang3, ang4, PQ, PA, PB, QC, QD, etaCou, expo12, expo34);
-
-              bielecTot *= totalCou;
-            }
-          }
-        }
-    }
-     accbE[local_i].val = bielecTot;
-
-       });
-     });
-   });
-
+  cout << "Bloqued total: " << sci +  sc << std::endl;
 
 ///////////////////////////////////////////////FINISHED//////////////////////////////////////////////////////////////////////////////
-
- }W.wait();
-
-
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -2371,7 +2474,6 @@ void MatElements::Data(fstream& basisFile, fstream& xyzFile, fstream& movecsFile
   readData.coefficientsFinal(basisFile, xyzFile, movecsFile);
   readData.nucleusBasis();
   readData.densityMatrix();
-//  readData.getNumOccOrb();
   fourIndexTransf();
   
 }
@@ -2385,93 +2487,6 @@ void MatElements::matrixElements (fstream& boysFile, fstream& boysFile1) {
     num += readData.lastBasis[i].basisExponents.size();
 
   IntegralEvaluation(num, boysFile, boysFile1);
-
-}
-
-void MatElements::matrixBuilding() { 
-
-	int num;
-  int ind_i, ind_j;
-
-  num = 0;
-  for (int i=0; i<readData.lastBasis.size(); i++)
-    num += readData.lastBasis[i].basisExponents.size();
-
-  cE.resize(num*num*num*num);
-  oE.resize(num*num);
-  kE.resize(num*num);
-  nE.resize(num*num);
-  
-  for (int i=0; i<oEi.size(); i++) {
-    ind_i = oEi[i].ind_a*num + oEi[i].ind_b;
-    ind_j = oEi[i].ind_b*num + oEi[i].ind_a;
-    oE[ind_i] = oEi[i].oE;
-    kE[ind_i] = oEi[i].kE;
-    nE[ind_i] = oEi[i].nE;
-    oE[ind_j] = oEi[i].oE;
-    kE[ind_j] = oEi[i].kE;
-    nE[ind_j] = oEi[i].nE;
-  }
-
-  for (int i=0; i<oETS.size(); i++) {
-    ind_i = oETS[i].ind_a*num + oETS[i].ind_b;
-    oE[ind_i] = oETS[i].oE;
-    kE[ind_i] = oETS[i].kE;
-    nE[ind_i] = oETS[i].nE;
-  }
-
-  for (int i=0; i<bETS.size(); i++) {
-    ind_i = bETS[i].ind_a;
-    ind_j = num*num*num*ind_i + num*num*ind_i + num*ind_i + ind_i;
-    cE[ind_j] = bETS[i].val;   
-  }
-
-  passingElements(num, bE, cE);
-  passingElements(num, bE1, cE);
-  passingElements(num, bE2, cE);
-  passingElements(num, bE3, cE);
-  passingElements(num, bE4, cE);
-  passingElements(num, bE5, cE);
-  passingElements(num, bE6, cE);
-  passingElements(num, bE7, cE);
-
-  int n, h;
-
-  h = 0;
-  n = readData.numberOfPrimFunc;
-  // Aqui se arma la matriz Coulombica
-  totalCoulombicEnergy = 0.0;
-  double totalExchangeEnergy = 0.0;
-  for (int i=0; i<readData.numberOfOccOrb; i++)  
-    for (int j=0; j<readData.numberOfOccOrb; j++)  
-      for (int a=0; a<readData.numberOfPrimFunc; a++)
-        for (int b=0; b<readData.numberOfPrimFunc; b++) 
-          for (int c=0; c<readData.numberOfPrimFunc; c++)
-            for (int d=0; d<readData.numberOfPrimFunc; d++) {
-              totalCoulombicEnergy += readData.dE[i*n*n+n*a+b]  * readData.dE[j*n*n+d*n+c] *cE[n*n*n*a + n*n*b + n*c + d];
-              totalExchangeEnergy += readData.dE[i*n*n+n*a+b]  * readData.dE[j*n*n+d*n+c] *(-0.5*cE[n*n*n*a + n*n*c + n*b + d]);
-              h++;
-            }
-
-        
-  totalKineticEnergy = 0.0;
-  totalNucleousElecEnergy = 0.0;
-  for (int i=0; i<readData.numberOfOccOrb; i++)  
-    for (int a=0; a<readData.numberOfPrimFunc; a++)
-      for (int b=0; b<readData.numberOfPrimFunc; b++) {
-        totalKineticEnergy += readData.dE[i*n*n+n*a+b] * kE[n*a+b];
-        totalNucleousElecEnergy += readData.dE[i*n*n+n*a+b] * nE[n*a+b];
-      }
-
-//-------------------------------------TO PRINT OVERLAP MATRIX------------------
-
-  overlapMatrix(num);
-
-//------------------------------------------------------------------------------
-
-  cout << "Bielectronic contribution:   " << 0.5*(totalCoulombicEnergy + totalExchangeEnergy) << std::endl;
-  cout << "Monoelectronic contribution:   " << totalNucleousElecEnergy + totalKineticEnergy << std::endl;
-  cout << "Energy Total   " << totalNucleousElecEnergy + totalKineticEnergy + 0.5*(totalCoulombicEnergy+totalExchangeEnergy) << std::endl;
 
 }
 
@@ -2498,7 +2513,7 @@ void MatElements::overlapMatrix(int num) {
   ni = cont;
 
   int a, b, ia, ib;
-
+  
   cont1 = 0;
   b = 0;
   for (int j=0; j<readData.lastBasis.size(); j++) {
@@ -2515,7 +2530,7 @@ void MatElements::overlapMatrix(int num) {
               cont++;
               ia++;
             }
-           a++;
+           a++; 
           }
         }
         cont1++;
@@ -2524,14 +2539,96 @@ void MatElements::overlapMatrix(int num) {
       b++;
       }
     }
-
+  
   for (int i=0; i<ni; i++) {
     for (int j=0; j<ni; j++) {
-      if (i == j)
-        cout << i << "  "  << j << "   " << overlapElements[i][j] << "\n";
+      if (abs(overlapElements[i][j]) >= 1E-8)
+        cout << i << "  "  << j << "   " << overlapElements[i][j] << "\n"; 
     }
     cout << "---------------------------------------------------------------\n";
   }
+}
+
+
+void MatElements::matrixBuilding() { 
+
+	int num;
+  int ind_i, ind_j;
+
+  num = 0;
+  for (int i=0; i<readData.lastBasis.size(); i++)
+    num += readData.lastBasis[i].basisExponents.size();
+
+//  cE.resize(num*num*num*num);
+  oE.resize(num*num);
+  kE.resize(num*num);
+  nE.resize(num*num);
+  
+  for (int i=0; i<oEi.size(); i++) {
+    ind_i = oEi[i].ind_a*num + oEi[i].ind_b;
+    ind_j = oEi[i].ind_b*num + oEi[i].ind_a;
+    oE[ind_i] = oEi[i].oE;
+    kE[ind_i] = oEi[i].kE;
+    nE[ind_i] = oEi[i].nE;
+    oE[ind_j] = oEi[i].oE;
+    kE[ind_j] = oEi[i].kE;
+    nE[ind_j] = oEi[i].nE;
+  }
+
+  for (int i=0; i<oETS.size(); i++) {
+    ind_i = oETS[i].ind_a*num + oETS[i].ind_b;
+    oE[ind_i] = oETS[i].oE;
+    kE[ind_i] = oETS[i].kE;
+    nE[ind_i] = oETS[i].nE;
+  }
+/*
+  for (int i=0; i<bETS.size(); i++) {
+    ind_i = bETS[i].ind_a;
+    ind_j = num*num*num*ind_i + num*num*ind_i + num*ind_i + ind_i;
+    cE[ind_j] = bETS[i].val;   
+  }
+
+  passingElements(num, bE, cE);
+  passingElements(num, bE1, cE);
+  passingElements(num, bE2, cE);
+  passingElements(num, bE3, cE);
+  passingElements(num, bE4, cE);
+  passingElements(num, bE5, cE);
+  passingElements(num, bE6, cE);
+  passingElements(num, bE7, cE);
+*/
+//-------------------------------------TO PRINT OVERLAP MATRIX------------------
+
+//  overlapMatrix(num);
+
+//------------------------------------------------------------------------------
+  
+  int n;
+  n = readData.numberOfPrimFunc;
+  // Aqui se arma la matriz Coulombica
+/*  totalCoulombicEnergy = 0.0;
+  for (int i=0; i<readData.numberOfOccOrb; i++)  
+    for (int j=0; j<readData.numberOfOccOrb; j++)  
+      for (int a=0; a<readData.numberOfPrimFunc; a++)
+        for (int b=0; b<readData.numberOfPrimFunc; b++) 
+          for (int c=0; c<readData.numberOfPrimFunc; c++)
+            for (int d=0; d<readData.numberOfPrimFunc; d++) {
+              totalCoulombicEnergy += readData.dE[i*n*n+n*a+b]  * readData.dE[j*n*n+d*n+c] * (cE[n*n*n*a + n*n*b + n*c + d] - 0.5*cE[n*n*n*a + n*n*c + n*b + d]);
+            }
+       */ 
+  totalKineticEnergy = 0.0;
+  totalNucleousElecEnergy = 0.0;
+  for (int i=0; i<readData.numberOfOccOrb; i++)  
+    for (int a=0; a<readData.numberOfPrimFunc; a++)
+      for (int b=0; b<readData.numberOfPrimFunc; b++) {
+        totalKineticEnergy += readData.dE[i*n*n+n*a+b] * kE[n*a+b];
+        totalNucleousElecEnergy += readData.dE[i*n*n+n*a+b] * nE[n*a+b];
+      }
+
+  cout << "Bielectronic contribution:   " << 0.5*totalCoulombicEnergy << std::endl;
+  cout << "Monoelectronic contribution:   " << totalNucleousElecEnergy + totalKineticEnergy << std::endl;
+  cout << "Energy Total   " << totalNucleousElecEnergy + totalKineticEnergy + 0.5*totalCoulombicEnergy<< std::endl;
+
 }
 
 void MatElements::passingElements(int n, vector<bielectro<double>> bE, vector<double>& cE) {
@@ -2555,7 +2652,6 @@ void MatElements::passingElements(int n, vector<bielectro<double>> bE, vector<do
   }
 
 }
-
 
 void MatElements::fourIndexTransf() {
 

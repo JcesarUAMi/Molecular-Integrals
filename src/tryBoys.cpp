@@ -84,6 +84,7 @@ int main () {
   McMurchie<double> MC;
   MC.EvaluationBoys(a, factor);
 
+  cout << "ya pues:  " << resultHost << "    and:   " << resultHost1 << std::endl;
 
   return 0;
 }

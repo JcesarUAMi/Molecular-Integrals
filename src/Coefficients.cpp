@@ -10,9 +10,8 @@ using namespace std;
 
 void Coefficients::readMovecsFile(fstream& readFromFile) {
 
-//  string file = "h2odif.movecs";
-//  string file = "metanol.movecs";
-  string file = "sic_B2_final.movecs";
+//  string file = "h2dif.movecs";
+  string file = "decanol.movecs";
 //  string file = "../h2oaug.movecs";
 //  string file = "heaug.movecs";
 //  string file = "he.movecs";
@@ -21,7 +20,7 @@ void Coefficients::readMovecsFile(fstream& readFromFile) {
 //  string file = "h2osto.movecs";
 //  string file = "h2o631.movecs";
 //  string file = "o2aug.movecs";
-//  string file = "../benzene.movecs";
+//  string file = "benzene.movecs";
   ifstream movecs(file.c_str(), ios::in | ios::binary);
 
   if (!movecs) {
@@ -102,7 +101,7 @@ void Coefficients::readMovecsFile(fstream& readFromFile) {
   
   for(int i=0;i<c.nw_nbf;i++) {  
     molecularOrbitalData[i].orbitalEnergie = c.nw_en[i];
-    cout << i << " baiiii: " << c.nw_en[i] << endl;
+//    cout << i << " baiiii: " << c.nw_en[i] << endl;
   }
   
   movecs.read((char*)&c.ignoreInt, 4);
@@ -118,8 +117,8 @@ void Coefficients::readMovecsFile(fstream& readFromFile) {
   }
 
   movecs.close();
-/*
 
+/*
   for (int i=0; i<c.nw_nbf; i++) {
     cout << "FOR ORBITAL: " << i << endl;
     cout << "Occupancy: " << molecularOrbitalData[i].orbitalOccupancy << endl;

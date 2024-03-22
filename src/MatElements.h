@@ -149,20 +149,20 @@ template <typename U> class storm {
 
 }
 
+
   int factorial (int n) {
 
   int result;
   result = 1;
 
-  if (n > 1) {
-    for (int i=0; i<n; i++)
-      result *= (n-i);
+  if (n > result) {
+    for (int i=1; i<=n; i++)
+      result *= (n-i+1);
   }
 
   return result;
 
 }
-
 
   int binomialCoef (int n, int k) {
 
@@ -171,63 +171,6 @@ template <typename U> class storm {
 
   return result;
 
-}
-
-int lambda (int i, int t) {
-
-  int result;
-  i *= 2;
-  result = factorial(t+i) / (factorialDouble(i)*factorial(t));
-
-  return result;
-}
-
-  int coeficient (int la, int j) {
-
-  int result;
-  if (j > la)
-    result = 0;
-  else
-    result = factorial(la) / (factorial(j)*factorial(la-j));
-
-  return result;
-}
-
-double aCoef (int la, int lb, int ff, int i, double Xpa, double Xpb) {
-
-  double coef1;
-  int nff;
-
-  coef1 = 0.0;
-  for (int j=0; j<=ff-2*i; j++) {
-    nff = ff-2*i-j;
-    coef1 += coeficient(la, j)*coeficient(lb, nff)*mypow(Xpa,j)*mypow(Xpb,nff);
-  }
-
-  return coef1;
-}
-
-double McMurchieCoefTiam (int la, int lb, int t, double p, double Xpa, double Xpb) {
-
-  double coef1, factor, result, coef, fac;
-  int ff, I;
-
-  if (t < 0 || t > la+lb)
-    result = 0.0;
-  else {
-    ff = la + lb - t;
-    I = ff * 0.5;
-    factor = mypow(2*p, -t);
-    fac = 0.0;
-    for (int i=0; i<=I; i++) {
-      coef = lambda(i, t) * mypow(2*p, -i);
-      coef1 = aCoef(la, lb, ff, i, Xpa, Xpb);
-      fac += coef*coef1;
-    }
-    result = factor * fac;
-  }
-
-  return result;
 }
 
   double OverlapNumericalIntegral(int la, int lb, double Xpa, double Xpb, double q) {
@@ -487,11 +430,12 @@ if (n == 0) {
     boysD[0] = 518918400 * mypow(p,8);
     boysN[0] = 8;
   }
-  
+
   }
 }
 
 }
+
 
  void DerivativeBoys (double *boysD, int *boysN, double p, double Xpq, int n, int& ni) {
 
@@ -548,7 +492,7 @@ if (n == 0) {
     ni = 4;
     boysD[0] = 1680.0*p*p*p*p*Xpq;
     boysD[1] = -3360.0*p*p*p*p*p*Xpq*Xpq*Xpq;
-    boysD[2] = 1344.0*mypow(p,6)*mypow(Xpq,5);
+    boysD[2] = 1344.0*p*p*p*p*p*p*Xpq*Xpq*Xpq*Xpq*Xpq;
     boysD[3] = mypow(preFac,7);
     boysN[0] = 4;
     boysN[1] = 5;
@@ -694,96 +638,7 @@ if (n == 0) {
     boysN[6] = 14;
     boysN[7] = 15;
     boysN[8] = 16;
-  } else if ( n == 17) {
-    ni = 9;
-    boysD[0] =  -17643225600 * mypow(p,9) * Xpq;
-    boysD[1] = 94097203200 * mypow(p,10)*Xpq*Xpq*Xpq;
-    boysD[2] = -131736084480 * mypow(p,11)*mypow(Xpq,5);
-    boysD[3] = 75277762560 * mypow(p,12)*mypow(Xpq,7);
-    boysD[4] =  -20910489600 * mypow(p,13)*mypow(Xpq,9);
-    boysD[5] =  3041525760 * mypow(p,14)*mypow(Xpq,11);
-    boysD[6] = -233963520 * mypow(p,15)*mypow(Xpq,13);
-    boysD[7] = 8912896 * mypow(p,16)*mypow(Xpq,15);
-    boysD[8] = mypow(preFac,17);
-    boysN[0] = 9;
-    boysN[1] = 10;
-    boysN[2] = 11;
-    boysN[3] = 12;
-    boysN[4] = 13;
-    boysN[5] = 14;
-    boysN[6] = 15;
-    boysN[7] = 16;
-    boysN[8] = 17;
-  } else if ( n == 18) {
-    ni = 10;
-    boysD[0] =  -17643225600 * mypow(p,9);
-    boysD[1] = 317578060800 * mypow(p,10)*Xpq*Xpq;
-    boysD[2] = - 846874828800* mypow(p,11)*mypow(Xpq,4);
-    boysD[3] = 790416506880 * mypow(p,12)*mypow(Xpq,6);
-    boysD[4] = -338749931520 * mypow(p,13)*mypow(Xpq,8);
-    boysD[5] = 75277762560 * mypow(p,14)*mypow(Xpq,10);
-    boysD[6] = -9124577280* mypow(p,15)*mypow(Xpq,12);
-    boysD[7] = 601620480 * mypow(p,16)*mypow(Xpq,14);
-    boysD[8] = -20054016 * mypow(p,17)*mypow(Xpq,16);
-    boysD[9] = mypow(preFac,18);
-    boysN[0] = 9;
-    boysN[1] = 10;
-    boysN[2] = 11;
-    boysN[3] = 12;
-    boysN[4] = 13;
-    boysN[5] = 14;
-    boysN[6] = 15;
-    boysN[7] = 16;
-    boysN[8] = 17;
-    boysN[9] = 18;
-  } else if ( n == 19) {
-    ni = 10;
-    boysD[0] = 670442572800 * mypow(p,10) * Xpq;
-    boysD[1] = -4022655436800 * mypow(p,11)*Xpq*Xpq*Xpq;
-    boysD[2] = 6436248698880 * mypow(p,12)*mypow(Xpq,5);
-    boysD[3] = -4290832465920* mypow(p,13)*mypow(Xpq,7);
-    boysD[4] = 1430277488640 * mypow(p,14)*mypow(Xpq,9);
-    boysD[5] = -260050452480* mypow(p,15)*mypow(Xpq,11);
-    boysD[6] = 26671841280* mypow(p,16)*mypow(Xpq,13);
-    boysD[7] = -1524105216* mypow(p,17)*mypow(Xpq,15);
-    boysD[8] = 44826624* mypow(p,18)*mypow(Xpq,17);
-    boysD[9] = mypow(preFac,19);
-    boysN[0] = 10;
-    boysN[1] = 11;
-    boysN[2] = 12;
-    boysN[3] = 13;
-    boysN[4] = 14;
-    boysN[5] = 15;
-    boysN[6] = 16;
-    boysN[7] = 17;
-    boysN[8] = 18;
-    boysN[9] = 19;
-  } else if ( n == 20) {
-    ni = 11;
-    boysD[0] = 670442572800*mypow(p,10);
-    boysD[1] = -13408851456000* mypow(p,11)*Xpq*Xpq;
-    boysD[2] = 40226554368000* mypow(p,12)*mypow(Xpq,4);
-    boysD[3] = -42908324659200* mypow(p,13)*mypow(Xpq,6);
-    boysD[4] = 21454162329600* mypow(p,14)*mypow(Xpq,8);
-    boysD[5] = -5721109954560* mypow(p,15)*mypow(Xpq,10);
-    boysD[6] = 866834841600* mypow(p,16)*mypow(Xpq,12);
-    boysD[7] = -76205260800* mypow(p,17)*mypow(Xpq,14);
-    boysD[8] = 3810263040* mypow(p,18)*mypow(Xpq,16);
-    boysD[9] = -99614720* mypow(p,19)*mypow(Xpq,18);
-    boysD[10] = mypow(preFac,20);
-    boysN[0] = 10;
-    boysN[1] = 11;
-    boysN[2] = 12;
-    boysN[3] = 13;
-    boysN[4] = 14;
-    boysN[5] = 15;
-    boysN[6] = 16;
-    boysN[7] = 17;
-    boysN[8] = 18;
-    boysN[9] = 19;
-    boysN[10] = 20;
   }
-
  
 }
 
@@ -819,7 +674,7 @@ if (n == 0) {
       return result;
     }
 
-    template<typename bt> bt SplinesBoys(bt xi, bt vala, bt valb, bt valc, bt vald) {
+  template<typename bt> bt SplinesBoys(bt xi, bt vala, bt valb, bt valc, bt vald) {
 
       bt fx, sxi, fac1;
 
@@ -830,6 +685,7 @@ if (n == 0) {
 
       return fx;
     }
+
 
   inline double boysDownward(double x, double boys, int m, int p, double *boysT) {
     U result;
@@ -879,15 +735,15 @@ if (n == 0) {
   for (int t=0; t<=ang12[0]; t++)
     for (int u=0; u<=ang12[1]; u++)
       for (int v=0; v<=ang12[2]; v++) {
-        coef1Ex = McMurchieCoefTiam(ang1[0], ang2[0], t, expo12, 0.0, 0.0);
-        coef1Ey = McMurchieCoefTiam(ang1[1], ang2[1], u, expo12, 0.0, 0.0);
-        coef1Ez = McMurchieCoefTiam(ang1[2], ang2[2], v, expo12, 0.0, 0.0);
+        coef1Ex = McMurchieCoefLoop(EfactorsX, ang1[0], ang2[0], t, expo12, 0.0, 0.0);
+        coef1Ey = McMurchieCoefLoop(EfactorsY, ang1[1], ang2[1], u, expo12, 0.0, 0.0);
+        coef1Ez = McMurchieCoefLoop(EfactorsZ, ang1[2], ang2[2], v, expo12, 0.0, 0.0);
         for (int ta=0; ta<=ang34[0]; ta++)
           for (int ua=0; ua<=ang34[1]; ua++)
             for (int va=0; va<=ang34[2]; va++) {
-              coef2Ex = McMurchieCoefTiam(ang3[0], ang4[0], ta, expo34, 0.0, 0.0);
-              coef2Ey = McMurchieCoefTiam(ang3[1], ang4[1], ua, expo34, 0.0, 0.0);
-              coef2Ez = McMurchieCoefTiam(ang3[2], ang4[2], va, expo34, 0.0, 0.0);
+              coef2Ex = McMurchieCoefLoop(EfactorsX, ang3[0], ang4[0], ta, expo34, 0.0, 0.0);
+              coef2Ey = McMurchieCoefLoop(EfactorsY, ang3[1], ang4[1], ua, expo34, 0.0, 0.0);
+              coef2Ez = McMurchieCoefLoop(EfactorsZ, ang3[2], ang4[2], va, expo34, 0.0, 0.0);
               DerivativeBoysOneCenter(boysDx, boysNx, etaCou, t+ta, nx);
               DerivativeBoysOneCenter(boysDy, boysNy, etaCou, u+ua, ny);
               DerivativeBoysOneCenter(boysDz, boysNz, etaCou, v+va, nz);
@@ -921,15 +777,15 @@ if (n == 0) {
   for (int t=0; t<=ang12[0]; t++)
     for (int u=0; u<=ang12[1]; u++)
       for (int v=0; v<=ang12[2]; v++) {
-        coef1Ex = McMurchieCoefTiam(ang1[0], ang2[0], t, expo12, PA[0], PB[0]);
-        coef1Ey = McMurchieCoefTiam(ang1[1], ang2[1], u, expo12, PA[1], PB[1]);
-        coef1Ez = McMurchieCoefTiam(ang1[2], ang2[2], v, expo12, PA[2], PB[2]);
+        coef1Ex = McMurchieCoefLoop(EfactorsX, ang1[0], ang2[0], t, expo12, PA[0], PB[0]);
+        coef1Ey = McMurchieCoefLoop(EfactorsY, ang1[1], ang2[1], u, expo12, PA[1], PB[1]);
+        coef1Ez = McMurchieCoefLoop(EfactorsZ, ang1[2], ang2[2], v, expo12, PA[2], PB[2]);
         for (int ta=0; ta<=ang34[0]; ta++)
           for (int ua=0; ua<=ang34[1]; ua++)
             for (int va=0; va<=ang34[2]; va++) {
-              coef2Ex = McMurchieCoefTiam(ang3[0], ang4[0], ta, expo34, QC[0], QD[0]);
-              coef2Ey = McMurchieCoefTiam(ang3[1], ang4[1], ua, expo34, QC[1], QD[1]);
-              coef2Ez = McMurchieCoefTiam(ang3[2], ang4[2], va, expo34, QC[2], QD[2]);
+              coef2Ex = McMurchieCoefLoop(EfactorsX, ang3[0], ang4[0], ta, expo34, QC[0], QD[0]);
+              coef2Ey = McMurchieCoefLoop(EfactorsY, ang3[1], ang4[1], ua, expo34, QC[1], QD[1]);
+              coef2Ez = McMurchieCoefLoop(EfactorsZ, ang3[2], ang4[2], va, expo34, QC[2], QD[2]);
               DerivativeBoys(boysDx, boysNx, etaCou, PQ[0], t+ta, nx);
               DerivativeBoys(boysDy, boysNy, etaCou, PQ[1], u+ua, ny);
               DerivativeBoys(boysDz, boysNz, etaCou, PQ[2], v+va, nz);
@@ -1041,8 +897,6 @@ class MatElements {
     void matrixElements(fstream&, fstream&);
     void matrixBuilding();
     void overlapMatrix(int);
-    vector<double> oneElecCoulombEnergy;
-    int occOrb;
     vector<double> kineticEnergy;
     vector<double> nucleousElecEnergy;
     vector<double> repulsionElecEnergy;

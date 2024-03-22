@@ -12,11 +12,11 @@ void Molecule::readCoordinates(fstream& fileXYZ) {
   double coor[3];
   const double convertAngBohr = 1.889725989;
 //  string file = "h2oSto.xyz";
+//  string file = "h2dif.xyz";
 //  string file = "h2odif.xyz";
-  string file = "metanol.xyz";
 //  string file = "O2.xyz";
 //  string file = "h2o631.xyz";
-//  string file = "he.xyz";
+  string file = "decanol.xyz";
 //  string file = "cooh.xyz";
 //  string file = "h2oaug.xyz";
 //  string file = "benzene.xyz";
@@ -48,7 +48,7 @@ void Molecule::readCoordinates(fstream& fileXYZ) {
     << " with coordinates: "
     << geom[j].nCoor[0] << '\t' << geom[j].nCoor[1] << '\t' << geom[j].nCoor[2] << endl;
   }
- */ 
+*/  
 }
 
 void Molecule::getAtomicNumber (string atomType) {

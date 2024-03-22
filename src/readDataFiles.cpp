@@ -94,6 +94,7 @@ void readDataInput::densityMatrix() {
 			}	
 		}
  
+  for (int i=0; i<numberOfOccOrb; i++) { 
 	cont1 = 0;
 	for (int j=0; j<lastBasis.size(); j++) 
 		for (int k=0; k<lastBasis[j].shellSize.size(); k++) 
@@ -102,16 +103,17 @@ void readDataInput::densityMatrix() {
     		for (int h=0; h<lastBasis.size(); h++) 
       		for (int m=0; m<lastBasis[h].shellSize.size(); m++)
         		for (int n=0; n<lastBasis[h].shellSize[m]; n++) { 
-							for (int i=0; i<numberOfOccOrb; i++)  
+        //      for (int i=0; i<numberOfOccOrb; i++) 
           			dE[i*tot+cont1*numberOfPrimFunc+cont] = 2.0*lastBasis[h].lastBasisCoeff[i].bC[m][n] * lastBasis[j].lastBasisCoeff[i].bC[k][l];    
 								cont++;
            }
 				cont1++;
     		}
+  }
 
 }  
 
-void readDataInput::getNumOccOrb () {
+void readDataInput::getNumOccOrb() {
 
   int occ;
   numberOfOccOrb = 0;

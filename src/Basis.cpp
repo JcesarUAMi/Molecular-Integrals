@@ -13,15 +13,15 @@ using namespace std;
 
 void Basis::readBasisFile(fstream& readFromFile, int nDifAtoms) {
   
-//  string file = "6-31g_st.gbs";
-//  string file = "6-31g.O.gbs";
+//  string file = "6-31g_st__st_.1.gbs";
+//  string file = "../scr/6-31g.C.gbs";
+// string file = "6-311g_st_.gbs";
+//  string file = "6-311g_C_.gbs";
   string file = "6-31g.C.gbs";
-//  string file = "6-311g_st_.gbs";
-//  string file = "6-311gHe.gbs";
 //  string file = "sto-3g.1.gbs";
 //  string file = "sto-3g.C.gbs";
 //    string file = "aug-cc-pvdz.He.gbs";
-//    string file = "aug-cc-pvdz.o.gbs";
+//    string file = "../scr/aug-cc-pvdz.o.gbs";
 //    string file = "aug-cc-pvtz.1.gbs";
 
   if (type == "Spherical") 
@@ -150,8 +150,8 @@ void Basis::readBasisFile(fstream& readFromFile, int nDifAtoms) {
   }
 
   normalize(nDifAtoms);
-
-/*  for(int k=0; k<nDifAtoms; k++) {
+/*
+  for(int k=0; k<nDifAtoms; k++) {
     cout << " another atom " << endl;
     for(int j=0; j<basisPrimitiveFunctions[k].shellSize.size(); j++) {
       cout << j << " " << basisPrimitiveFunctions[k].totalAngMom[j] << " size:   " << basisPrimitiveFunctions[k].shellSize[j] << endl;
@@ -219,7 +219,6 @@ void Basis::normalize(int nDifAtoms) {
         angularMoment(vang, angMom, type);
         expo = basisPrimitiveFunctions[k].primitiveExponents[j];
         basisPrimitiveFunctions[k].normConst[j] = normalizeCartesian(expo, vang);
-   //     cout << "Atom:  " << k << " primitive: " << j << "  " << basisPrimitiveFunctions[k].normConst[j] << "   " << basisPrimitiveFunctions[k].primitiveCoefficients[j] << std::endl;
         basisPrimitiveFunctions[k].primitiveCoefficients[j] *= basisPrimitiveFunctions[k].normConst[j]; 
       }
     }
@@ -254,7 +253,7 @@ void Basis::angularMoment (int *vang, int ang, int type) {
                vang[1]=1;
                break;
       case 2 : vang[0]=1;
-               vang[2]=2;  
+               vang[2]=1;  
                break;
       case 3 : vang[1]=2;  
                break;
